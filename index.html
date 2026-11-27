@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f4f3ef">
+  <title>Diplomasi Haritası</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="ust">
+    <div class="marka">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.8 3.8 5.8 3.8 9s-1.2 6.2-3.8 9c-2.6-2.8-3.8-5.8-3.8-9S9.4 5.8 12 3z"/></svg>
+      <b>Diplomasi Haritası</b>
+    </div>
+    <div class="ust-eylem">
+      <button class="ikon" id="b-geri" title="Geri al (⌘Z)" aria-label="Geri al" disabled>
+        <svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
+      <button class="ikon" id="b-ileri" title="Yinele (⇧⌘Z)" aria-label="Yinele" disabled>
+        <svg viewBox="0 0 24 24"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>
+      </button>
+      <span class="ayrac"></span>
+      <div class="menu-sar">
+        <button class="dugme" id="b-dosya" aria-haspopup="true" aria-expanded="false">
+          Dosya <svg viewBox="0 0 24 24" class="ok"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div class="menu" id="m-dosya" hidden>
+          <button data-k="kaydet">Dosyaya kaydet (.json)</button>
+          <button data-k="ac">Kayıtlı haritayı aç…</button>
+          <button data-k="png">PNG olarak indir</button>
+          <hr>
+          <button data-k="sifirla" class="tehlike">Boş haritaya dön</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="govde">
+    <nav class="araclar" id="araclar" aria-label="Araçlar">
+      <button data-arac="tasi" title="Taşı (H)">
+        <svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M12 3 9.5 5.5M12 3l2.5 2.5M12 21l-2.5-2.5M12 21l2.5-2.5M3 12l2.5-2.5M3 12l2.5 2.5M21 12l-2.5-2.5M21 12l-2.5 2.5"/></svg>
+        <span>Taşı</span>
+      </button>
+      <button data-arac="doldur" title="Doldur (G)">
+        <svg viewBox="0 0 24 24"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2a2 2 0 0 0 2.8 0L19 11Z"/><path d="m5 2 5 5M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 2-4 2-4s2 2.4 2 4Z"/></svg>
+        <span>Doldur</span>
+      </button>
+      <button data-arac="firca" title="Fırça (B)">
+        <svg viewBox="0 0 24 24"><path d="m9.1 11.9 8-8.1a2.9 2.9 0 1 1 4.1 4.1l-8.1 8"/><path d="M7.1 14.9c-1.7 0-3 1.4-3 3 0 1.4-2.5 1.6-2 2 1.1 1.1 2.5 2 4 2 2.2 0 4-1.8 4-4a3 3 0 0 0-3-3Z"/></svg>
+        <span>Fırça</span>
+      </button>
+      <button data-arac="sinir" title="Sınır çek (S)">
+        <svg viewBox="0 0 24 24"><path d="M2 7c3-2.5 5.5 2.5 10 0s7-2.5 10 0"/><path d="M12 10v10M8.5 16.5 12 20l3.5-3.5"/></svg>
+        <span>Sınır çek</span>
+      </button>
+      <button data-arac="silgi" title="Silgi (E)">
+        <svg viewBox="0 0 24 24"><path d="m7 21-4.3-4.3a2.4 2.4 0 0 1 0-3.4l9.6-9.6a2.4 2.4 0 0 1 3.4 0l5.6 5.6a2.4 2.4 0 0 1 0 3.4L13 21"/><path d="M22 21H7M5 11l9 9"/></svg>
+        <span>Silgi</span>
+      </button>
+      <button data-arac="kalem" title="Kalem (P)">
+        <svg viewBox="0 0 24 24"><path d="M17 3a2.9 2.9 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+        <span>Kalem</span>
+      </button>
+      <button data-arac="damlalik" title="Ülke seç (I) — her araçta Alt+tık">
+        <svg viewBox="0 0 24 24"><path d="m2 22 1-1h3l9-9M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>
+        <span>Seç</span>
+      </button>
+      <span class="bosluk"></span>
+      <button class="secili-gosterge" id="b-secili" title="Seçili ülke" aria-label="Seçili ülke"><i></i></button>
+      <button class="panel-ac" id="b-panel" title="Ülkeler ve ayarlar" aria-label="Ülkeler ve ayarlar">
+        <svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>
+        <span>Ülkeler</span>
+      </button>
+    </nav>
+
+    <main class="sahne" id="sahne">
+      <canvas id="gl"></canvas>
+      <canvas id="ust"></canvas>
+      <div class="bilgi" id="bilgi" aria-live="polite"></div>
+      <div class="zoom">
+        <button id="z-art" title="Yakınlaş" aria-label="Yakınlaş"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button id="z-azal" title="Uzaklaş" aria-label="Uzaklaş"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+        <button id="z-sigdir" title="Tüm dünya (0)" aria-label="Tüm dünyayı göster"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+      </div>
+      <div class="yukleniyor" id="yukleniyor"><span></span>Harita hazırlanıyor…</div>
+      <div class="bildirim" id="bildirim" role="status"></div>
+    </main>
+
+    <div class="hizli" id="hizli" aria-label="Ülke seç"></div>
+
+    <aside class="panel" id="panel" aria-label="Ülkeler ve ayarlar">
+      <div class="panel-bas">
+        <span class="tutamak"></span>
+        <button class="ikon kapat" id="b-panel-kapat" aria-label="Kapat"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+      <section class="kutu" id="arac-ayar"></section>
+      <section class="kutu ulkeler">
+        <div class="kutu-bas">
+          <h2>Ülkeler</h2>
+          <button class="dugme kucuk" id="b-ulke-ekle">+ Ülke ekle</button>
+        </div>
+        <ul id="ulke-liste"></ul>
+        <p class="not" id="kara-toplam"></p>
+      </section>
+      <section class="kutu gorunum">
+        <h2>Görünüm</h2>
+        <label class="satir-secim"><input type="checkbox" id="g-ic"> <span>Ülke içindeki eski sınırları göster</span></label>
+        <label class="satir-secim"><input type="checkbox" id="g-deniz"> <span>Denizi renklendir</span></label>
+        <label class="kaydirac">
+          <span>Çizgi kalınlığı <output id="g-cizgi-d"></output></span>
+          <input type="range" id="g-cizgi" min="0.6" max="2.4" step="0.1">
+        </label>
+      </section>
+      <section class="kutu kisayol">
+        <h2>Kısayollar</h2>
+        <p>Tekerlek / iki parmak: yakınlaş · Boşluk+sürükle: kaydır · ⌘Z geri al · [ ] fırça boyu · Alt+tık: ülke seç</p>
+      </section>
+    </aside>
+    <div class="perde" id="perde" hidden></div>
+  </div>
+
+  <input type="file" id="dosya-gir" accept=".json,application/json" hidden>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/topojson.min.js"></script>
+  <script src="vendor/world.js"></script>
+  <script src="vendor/isimler.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
