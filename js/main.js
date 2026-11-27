@@ -33,9 +33,9 @@ const S = {
   ulkeler: new Array(256).fill(null),
   secili: 1,
   arac: 'doldur',
-  firca: 22, korumali: false, doldurMod: 'ulke', etki: 140,
+  firca: 14, korumali: false, doldurMod: 'ulke', etki: 90,
   kalemRenk: '#141414', kalemKalin: 5,
-  icSinir: false, deniz: false, cizgi: 1,
+  icSinir: false, deniz: false, cizgi: 1, adlar: true, yaziBoyu: 1,
   cizimler: [], aktifCizim: null,
   geri: [], ileri: [],
   view: { scale: 1, ox: 0, oy: 0 }, minScale: 0.1, dpr: 1,
@@ -91,6 +91,7 @@ async function basla() {
     sinirla();
   }
   istatistik();
+  etiketHesapla();
   $('#yukleniyor').hidden = true;
   window.__harita = { S, W, H, isle, geriAl, ileriAl, istatistik };
 }
@@ -196,7 +197,7 @@ let kareIstegi = 0;
 function istek() { if (!kareIstegi) kareIstegi = requestAnimationFrame(kare); }
 function kare() {
   kareIstegi = 0;
-  if (eylem && eylem.tip === 'sinir' && eylem.yeniden) { eylem.yeniden = false; sinirHesapla(); }
+  if (eylem && eylem.tip === 'sinir') sinirIsle(eylem);
   if (yukBekleyen) {
     const k = yukBekleyen;
     yukBekleyen = null;
@@ -232,16 +233,17 @@ function ustCiz() {
     if (S.aktifCizim) cizgiCiz(c, S.aktifCizim);
     c.setTransform(1, 0, 0, 1, 0, 0);
   }
+  if (S.adlar) etiketCiz(c, v.scale, v.ox, v.oy, d, S.yaziBoyu);
   const im = S.imlec;
   if (!im || kaydir || jest) return;
   const x = im.x * v.scale + v.ox, y = im.y * v.scale + v.oy;
   if (S.arac === 'firca' || S.arac === 'silgi') {
-    const r = Math.max(2, S.firca * v.scale);
+    const r = Math.max(2, (eylem && eylem.tip === 'firca' ? eylem.r : fircaYaricap()) * v.scale);
     c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
     c.lineWidth = 3 * d; c.strokeStyle = 'rgba(255,255,255,.85)'; c.stroke();
     c.lineWidth = 1.2 * d; c.strokeStyle = 'rgba(20,20,20,.8)'; c.stroke();
   } else if (S.arac === 'sinir') {
-    const r = S.etki * v.scale;
+    const r = (eylem && eylem.tip === 'sinir' ? eylem.R : sinirYaricap()) * v.scale;
     c.setLineDash([5 * d, 5 * d]);
     c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
     c.lineWidth = 1.2 * d; c.strokeStyle = 'rgba(20,20,20,.55)'; c.stroke();
@@ -347,6 +349,7 @@ function degisti(regionDegisti) {
   if (regionDegisti) S.regionKirli = true;
   clearTimeout(istatTimer);
   istatTimer = setTimeout(istatistik, 120);
+  etiketPlanla();
   clearTimeout(kayitTimer);
   kayitTimer = setTimeout(() => otomatikKaydet().catch((e) => console.warn('kaydedilemedi', e)), 900);
 }
@@ -466,72 +469,258 @@ function taraflar(p, ic) {
       if (k) sayac.set(k, (sayac.get(k) || 0) + 1);
     }
   }
-  if (sayac.size < 2) return null;
-  const sirali = [...sayac.entries()].sort((a, b) => b[1] - a[1]);
   const i0 = y * W + x;
-  const k0 = S.region[i0] ? anahtar(S.owner[i0], S.region[i0], ic) : sirali[0][0];
-  const k1 = sirali.find(([k]) => k !== k0);
-  return k1 ? [k0, k1[0]] : null;
+  if (sayac.size >= 2) {
+    const sirali = [...sayac.entries()].sort((a, b) => b[1] - a[1]);
+    const k0 = S.region[i0] ? anahtar(S.owner[i0], S.region[i0], ic) : sirali[0][0];
+    const k1 = sirali.find(([k]) => k !== k0);
+    return k1 ? [k0, k1[0]] : null;
+  }
+  // Çizginin tam üstünde değil: daire içindeki en yakın komşu ülkeyi bul (karadan tutulduysa)
+  if (!S.region[i0]) return null;
+  const k0 = anahtar(S.owner[i0], S.region[i0], ic);
+  const R1 = Math.min(sinirYaricap() * 0.8, Math.max(R0, (40 * S.dpr) / S.view.scale));
+  const xc = Math.max(0, Math.floor(p.x - R1)), xd = Math.min(W - 1, Math.ceil(p.x + R1));
+  const yc = Math.max(0, Math.floor(p.y - R1)), yd = Math.min(H - 1, Math.ceil(p.y + R1));
+  let enYakin = R1 * R1, k1 = 0;
+  for (let yy = yc; yy <= yd; yy++) {
+    const dy = yy + 0.5 - p.y;
+    for (let xx = xc; xx <= xd; xx++) {
+      const dx = xx + 0.5 - p.x, d2 = dx * dx + dy * dy;
+      if (d2 >= enYakin) continue;
+      const i = yy * W + xx;
+      const k = anahtar(S.owner[i], S.region[i], ic);
+      if (k && k !== k0) { enYakin = d2; k1 = k; }
+    }
+  }
+  return k1 ? [k0, k1] : null;
 }
 
-function sinirAdimEkle(p) {
-  const e = eylem;
+// Araç daireleri ekranda sabit boydadır; harita birimine çevrilir (yakınlaştıkça incelir).
+function sinirYaricap() { return Math.min(700, Math.max(3, (S.etki * S.dpr) / S.view.scale)); }
+function fircaYaricap() { return Math.min(400, Math.max(0.75, (S.firca * S.dpr) / S.view.scale)); }
+
+// Sürükleme oturumu. Yöntem: "geri eşleme alanı" — pencere içindeki her piksel için, o pikselin
+// rengini sürükleme başlamadan önceki haritanın NERESİNDEN alacağı (mx,my kayması) tutulur.
+// Her itme adımı yalnızca kendi dairesindeki kaymaları günceller (hız dairenin alanıyla orantılı,
+// sürüklemenin uzunluğundan bağımsız); renkler her seferinde başlangıç kopyasından TEK kez
+// örneklenir, böylece yuvarlama birikmez ve ileri-geri sürüklemek tam olarak geri alır.
+function sinirBasla(p) {
+  const t = taraflar(p, S.icSinir);
+  if (!t) return null;
+  const R = sinirYaricap();
+  return {
+    tip: 'sinir', bas: { x: p.x, y: p.y }, son: { x: p.x, y: p.y }, taraf: t, ic: S.icSinir, R,
+    g: Math.max(1, Math.min(8, Math.floor(R / 40))), // kayma alanının ızgara aralığı (büyük dairede seyrek → hızlı)
+    bek: [], adimSay: 0, win: null, mx: null, my: null, ext: null, tumu: false,
+  };
+}
+
+function sinirAdimEkle(e, p) {
   const dx = p.x - e.son.x, dy = p.y - e.son.y;
   const d = Math.hypot(dx, dy);
   if (d < 0.25) return;
-  const adim = Math.max(0.5, e.R * 0.15);
+  const adim = Math.max(0.5, e.R * 0.12);
   const n = Math.ceil(d / adim);
-  for (let i = 0; i < n; i++) {
-    const cx = e.son.x + (dx * i) / n, cy = e.son.y + (dy * i) / n;
-    e.adim.push(cx, cy, dx / n, dy / n);
-    e.k = birlesim(e.k, Math.floor(cx - e.R) - 1, Math.floor(cy - e.R) - 1, Math.ceil(cx + e.R) + 2, Math.ceil(cy + e.R) + 2);
-  }
+  for (let i = 0; i < n; i++) e.bek.push(e.son.x + (dx * i) / n, e.son.y + (dy * i) / n, dx / n, dy / n);
   e.son = { x: p.x, y: p.y };
-  e.yeniden = true;
   istek();
 }
 
-// Sürüklemenin tamamını başlangıç anından (gölge kopyadan) yeniden hesaplar:
-// her piksel tüm itme adımlarından geriye izlenir, tek seferde örneklenir → kayma birikmez.
-function sinirHesapla() {
-  const e = eylem, k = e.k;
-  if (!k) return;
-  const st = e.adim, n = st.length / 4;
-  const R = e.R, R2 = R * R, ic = e.ic, P1 = e.taraf[0], P2 = e.taraf[1];
-  const SO = S.shOwner, SR = S.shRegion, O = S.owner, RG = S.region;
-  for (let y = k.y0; y < k.y1; y++) {
-    for (let x = k.x0; x < k.x1; x++) {
-      const gi = y * W + x;
-      const so = SO[gi], sr = SR[gi];
-      O[gi] = so;
-      RG[gi] = sr;
-      if (sr === 0) continue;
-      const kt = anahtar(so, sr, ic);
-      if (kt !== P1 && kt !== P2) continue;
-      let px = x + 0.5, py = y + 0.5, oynadi = false;
-      for (let j = n - 1; j >= 0; j--) {
-        const cx = st[4 * j], cy = st[4 * j + 1];
-        let ex = px - cx, ey = py - cy, d2 = ex * ex + ey * ey;
-        if (d2 >= R2) continue;
-        const ddx = st[4 * j + 2], ddy = st[4 * j + 3];
-        let u = 1 - d2 / R2, w = u * u;
-        ex = px - ddx * w - cx; ey = py - ddy * w - cy; d2 = ex * ex + ey * ey;
-        u = d2 < R2 ? 1 - d2 / R2 : 0; w = u * u;
-        px -= ddx * w; py -= ddy * w;
-        oynadi = true;
-      }
-      if (!oynadi) continue;
-      const ix = Math.floor(px), iy = Math.floor(py);
-      if (ix < 0 || iy < 0 || ix >= W || iy >= H) continue;
-      const si = iy * W + ix;
-      const o2 = SO[si], r2 = SR[si];
-      const ks = anahtar(o2, r2, ic);
-      if (ks === kt || (ks !== P1 && ks !== P2)) continue;
-      O[gi] = o2;
-      RG[gi] = r2;
+// Pencereyi (kayma alanının kapladığı dikdörtgen, ızgara biriminde) gereken yöne doğru büyütür.
+function sinirPencere(e, x0, y0, x1, y1) {
+  const g = e.g, CW = Math.ceil(W / g), CH = Math.ceil(H / g);
+  const w = e.win;
+  if (w && x0 >= w.x0 && y0 >= w.y0 && x1 <= w.x1 && y1 <= w.y1) return;
+  const pay = Math.max(Math.ceil(128 / g), Math.round((e.R * 0.75) / g));
+  const nx0 = !w || x0 < w.x0 ? Math.max(0, x0 - pay) : w.x0;
+  const ny0 = !w || y0 < w.y0 ? Math.max(0, y0 - pay) : w.y0;
+  const nx1 = !w || x1 > w.x1 ? Math.min(CW, x1 + pay) : w.x1;
+  const ny1 = !w || y1 > w.y1 ? Math.min(CH, y1 + pay) : w.y1;
+  const nw = nx1 - nx0, nh = ny1 - ny0;
+  const mx = new Float32Array(nw * nh), my = new Float32Array(nw * nh);
+  if (w) {
+    for (let y = 0; y < w.h; y++) {
+      const kaynak = y * w.w, hedef = (y + w.y0 - ny0) * nw + (w.x0 - nx0);
+      mx.set(e.mx.subarray(kaynak, kaynak + w.w), hedef);
+      my.set(e.my.subarray(kaynak, kaynak + w.w), hedef);
+    }
+    e.tumu = true;
+  }
+  const tx0 = nx0 * g, ty0 = ny0 * g, tx1 = Math.min(W, nx1 * g), ty1 = Math.min(H, ny1 * g);
+  e.win = { x0: nx0, y0: ny0, x1: nx1, y1: ny1, w: nw, h: nh, tx0, ty0, tx1, ty1, tw: tx1 - tx0, th: ty1 - ty0 };
+  e.mx = mx;
+  e.my = my;
+  e.ext = sinirUzanti(e);
+}
+
+// Pencere içinde her piksel için en yakın "taraf" pikselinin (iki ülkeden birinin) dizini.
+// Kaynak denize ya da üçüncü bir ülkeye düşerse buradan en yakın taraf alınır;
+// böylece kıyı ve komşu sınırı boyunca eski ülkeden artık şerit kalmaz.
+function sinirUzanti(e) {
+  const x0 = e.win.tx0, y0 = e.win.ty0, w = e.win.tw, h = e.win.th;
+  const n = w * h;
+  const idx = new Int32Array(n), uz = new Uint16Array(n);
+  const SO = S.shOwner, SR = S.shRegion, ic = e.ic, P1 = e.taraf[0], P2 = e.taraf[1];
+  for (let y = 0; y < h; y++) {
+    let gi = (y0 + y) * W + x0, i = y * w;
+    for (let x = 0; x < w; x++, gi++, i++) {
+      const r = SR[gi];
+      const k = r === 0 ? 0 : anahtar(SO[gi], r, ic);
+      if (k === P1 || k === P2) { idx[i] = gi; uz[i] = 0; } else { idx[i] = -1; uz[i] = 65535; }
     }
   }
-  kirlet(k.x0, k.y0, k.x1, k.y1);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      let d = uz[i];
+      if (d === 0) continue;
+      let b = idx[i];
+      if (x > 0 && uz[i - 1] + 3 < d) { d = uz[i - 1] + 3; b = idx[i - 1]; }
+      if (y > 0) {
+        if (uz[i - w] + 3 < d) { d = uz[i - w] + 3; b = idx[i - w]; }
+        if (x > 0 && uz[i - w - 1] + 4 < d) { d = uz[i - w - 1] + 4; b = idx[i - w - 1]; }
+        if (x < w - 1 && uz[i - w + 1] + 4 < d) { d = uz[i - w + 1] + 4; b = idx[i - w + 1]; }
+      }
+      uz[i] = d;
+      idx[i] = b;
+    }
+  }
+  for (let y = h - 1; y >= 0; y--) {
+    for (let x = w - 1; x >= 0; x--) {
+      const i = y * w + x;
+      let d = uz[i];
+      if (d === 0) continue;
+      let b = idx[i];
+      if (x < w - 1 && uz[i + 1] + 3 < d) { d = uz[i + 1] + 3; b = idx[i + 1]; }
+      if (y < h - 1) {
+        if (uz[i + w] + 3 < d) { d = uz[i + w] + 3; b = idx[i + w]; }
+        if (x < w - 1 && uz[i + w + 1] + 4 < d) { d = uz[i + w + 1] + 4; b = idx[i + w + 1]; }
+        if (x > 0 && uz[i + w - 1] + 4 < d) { d = uz[i + w - 1] + 4; b = idx[i + w - 1]; }
+      }
+      uz[i] = d;
+      idx[i] = b;
+    }
+  }
+  return idx;
+}
+
+// Tek itme adımı (ızgara biriminde): merkez (cx,cy), kayma (ddx,ddy), yarıçap R, yumuşak düşüş.
+// Yalnızca daire içindeki geri eşleme güncellenir: yeni(x') = eski(q), q = bu adımın tersi(x').
+let sinirTX = new Float32Array(0), sinirTY = new Float32Array(0);
+function sinirAdim(e, cx, cy, ddx, ddy, R) {
+  const g = e.g, CW = Math.ceil(W / g), CH = Math.ceil(H / g);
+  const R2 = R * R;
+  const bx0 = Math.max(0, Math.floor(cx - R)), by0 = Math.max(0, Math.floor(cy - R));
+  const bx1 = Math.min(CW, Math.ceil(cx + R) + 1), by1 = Math.min(CH, Math.ceil(cy + R) + 1);
+  if (bx1 <= bx0 || by1 <= by0) return null;
+  sinirPencere(e, bx0, by0, bx1, by1);
+  const win = e.win, ww = win.w, mx = e.mx, my = e.my;
+  const bw = bx1 - bx0, bh = by1 - by0;
+  if (sinirTX.length < bw * bh) { sinirTX = new Float32Array(bw * bh); sinirTY = new Float32Array(bw * bh); }
+  const TX = sinirTX, TY = sinirTY;
+  for (let y = 0; y < bh; y++) {
+    const o = (by0 + y - win.y0) * ww + (bx0 - win.x0);
+    TX.set(mx.subarray(o, o + bw), y * bw);
+    TY.set(my.subarray(o, o + bw), y * bw);
+  }
+  const xs = bw - 1, ys = bh - 1;
+  for (let y = by0; y < by1; y++) {
+    const py = y + 0.5, ey0 = py - cy;
+    const satir = (y - win.y0) * ww - win.x0;
+    for (let x = bx0; x < bx1; x++) {
+      const px = x + 0.5, ex0 = px - cx;
+      let d2 = ex0 * ex0 + ey0 * ey0;
+      if (d2 >= R2) continue;
+      let u = 1 - d2 / R2, f = u * u;
+      let qx = px - ddx * f, qy = py - ddy * f;
+      for (let it = 0; it < 3; it++) {
+        const ex = qx - cx, ey = qy - cy;
+        d2 = ex * ex + ey * ey;
+        u = d2 < R2 ? 1 - d2 / R2 : 0;
+        f = u * u;
+        qx = px - ddx * f;
+        qy = py - ddy * f;
+      }
+      let fx = qx - 0.5 - bx0, fy = qy - 0.5 - by0;
+      if (fx < 0) fx = 0; else if (fx > xs) fx = xs;
+      if (fy < 0) fy = 0; else if (fy > ys) fy = ys;
+      const ix = fx | 0, iy = fy | 0;
+      const ix1 = ix < xs ? ix + 1 : ix, iy1 = iy < ys ? iy + 1 : iy;
+      const tx = fx - ix, ty = fy - iy;
+      const a = iy * bw + ix, b = iy * bw + ix1, c = iy1 * bw + ix, d = iy1 * bw + ix1;
+      const ox = (TX[a] * (1 - tx) + TX[b] * tx) * (1 - ty) + (TX[c] * (1 - tx) + TX[d] * tx) * ty;
+      const oy = (TY[a] * (1 - tx) + TY[b] * tx) * (1 - ty) + (TY[c] * (1 - tx) + TY[d] * tx) * ty;
+      mx[satir + x] = qx - px + ox;
+      my[satir + x] = qy - py + oy;
+    }
+  }
+  return [bx0, by0, bx1, by1];
+}
+
+// Verilen dikdörtgendeki (harita pikseli) pikselleri başlangıç kopyasından yeniden renklendirir.
+function sinirEtiketle(e, rx0, ry0, rx1, ry1) {
+  const win = e.win, ww = win.w, wh = win.h, mx = e.mx, my = e.my, ext = e.ext;
+  const g = e.g, inv = 1 / g, xs = ww - 1, ys = wh - 1;
+  const ic = e.ic, P1 = e.taraf[0], P2 = e.taraf[1];
+  const SO = S.shOwner, SR = S.shRegion, O = S.owner, RG = S.region;
+  rx0 = Math.max(rx0, win.tx0); ry0 = Math.max(ry0, win.ty0); rx1 = Math.min(rx1, win.tx1); ry1 = Math.min(ry1, win.ty1);
+  if (rx1 <= rx0 || ry1 <= ry0) return;
+  for (let y = ry0; y < ry1; y++) {
+    let fy = (y + 0.5) * inv - 0.5 - win.y0;
+    if (fy < 0) fy = 0; else if (fy > ys) fy = ys;
+    const iy = fy | 0, ty = fy - iy;
+    const r0 = iy * ww, r1 = (iy < ys ? iy + 1 : iy) * ww;
+    let gi = y * W + rx0;
+    for (let x = rx0; x < rx1; x++, gi++) {
+      const so = SO[gi], sr = SR[gi];
+      let no = so, nr = sr;
+      if (sr !== 0) {
+        const kt = anahtar(so, sr, ic);
+        if (kt === P1 || kt === P2) {
+          let fx = (x + 0.5) * inv - 0.5 - win.x0;
+          if (fx < 0) fx = 0; else if (fx > xs) fx = xs;
+          const ix = fx | 0, tx = fx - ix, ix1 = ix < xs ? ix + 1 : ix;
+          const ddx = ((mx[r0 + ix] * (1 - tx) + mx[r0 + ix1] * tx) * (1 - ty) + (mx[r1 + ix] * (1 - tx) + mx[r1 + ix1] * tx) * ty) * g;
+          const ddy = ((my[r0 + ix] * (1 - tx) + my[r0 + ix1] * tx) * (1 - ty) + (my[r1 + ix] * (1 - tx) + my[r1 + ix1] * tx) * ty) * g;
+          if (ddx !== 0 || ddy !== 0) {
+            const sx = Math.floor(x + 0.5 + ddx), sy = Math.floor(y + 0.5 + ddy);
+            if (sx >= win.tx0 && sy >= win.ty0 && sx < win.tx1 && sy < win.ty1) {
+              const si = ext[(sy - win.ty0) * win.tw + (sx - win.tx0)];
+              if (si >= 0) {
+                const o2 = SO[si], r2 = SR[si];
+                if (anahtar(o2, r2, ic) !== kt) { no = o2; nr = r2; }
+              }
+            }
+          }
+        }
+      }
+      O[gi] = no;
+      RG[gi] = nr;
+    }
+  }
+  kirlet(rx0, ry0, rx1, ry1);
+}
+
+// Bekleyen adımları uygular ve etkilenen alanı yeniden renklendirir.
+// Eylem nesnesi parametreyle gelir: bırakma anında (eylem = null olduktan sonra) da güvenle çağrılır.
+function sinirIsle(e) {
+  const b = e.bek;
+  if (!b.length) return;
+  e.bek = [];
+  const t0 = performance.now();
+  const g = e.g, Rg = e.R / g;
+  let k = null;
+  for (let i = 0; i < b.length; i += 4) {
+    const r = sinirAdim(e, b[i] / g, b[i + 1] / g, b[i + 2] / g, b[i + 3] / g, Rg);
+    if (r) k = birlesim(k, r[0], r[1], r[2], r[3]);
+  }
+  e.adimSay += b.length / 4;
+  const w = e.win;
+  if (w && e.tumu) { e.tumu = false; sinirEtiketle(e, w.tx0, w.ty0, w.tx1, w.ty1); }
+  else if (k) sinirEtiketle(e, (k.x0 - 1) * g, (k.y0 - 1) * g, (k.x1 + 1) * g, (k.y1 + 1) * g);
+  const ms = performance.now() - t0;
+  S.olcum = { sonMs: ms, enUzunMs: Math.max(ms, (S.olcum && S.olcum.enUzunMs) || 0), R: e.R, g };
 }
 
 // ---------------------------------------------------------------- işaretçi olayları
@@ -550,14 +739,14 @@ function eylemBasla(p) {
     case 'firca':
     case 'silgi': {
       const hedef = S.arac === 'silgi' ? 0 : S.secili;
-      eylem = { tip: 'firca', son: p, hedef };
-      damga(p.x, p.y, S.firca, hedef);
+      eylem = { tip: 'firca', son: p, hedef, r: fircaYaricap() };
+      damga(p.x, p.y, eylem.r, hedef);
       break;
     }
     case 'sinir': {
-      const t = taraflar(p, S.icSinir);
-      if (!t) { bildir('Burada sınır yok — imleci iki ülke arasındaki çizginin tam üstüne getirip sürükle.'); return; }
-      eylem = { tip: 'sinir', bas: { x: p.x, y: p.y }, son: { x: p.x, y: p.y }, taraf: t, ic: S.icSinir, R: S.etki, adim: [], k: null };
+      const e = sinirBasla(p);
+      if (!e) { bildir('Yakında sınır yok — imleci iki ülke arasındaki çizgiye yaklaştırıp sürükle.'); return; }
+      eylem = e;
       break;
     }
     case 'kalem':
@@ -574,9 +763,9 @@ function eylemHareket(p, ev) {
   if (e.tip === 'firca') {
     const liste = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [];
     const noktalar = liste.length ? liste.map(noktaAl) : [p];
-    for (const q of noktalar) { fircaCizgi(e.son, q, S.firca, e.hedef); e.son = q; }
+    for (const q of noktalar) { fircaCizgi(e.son, q, e.r, e.hedef); e.son = q; }
   } else if (e.tip === 'sinir') {
-    sinirAdimEkle(p);
+    sinirAdimEkle(e, p);
   } else if (e.tip === 'kalem') {
     const pts = S.aktifCizim.pts;
     const lx = pts[pts.length - 2], ly = pts[pts.length - 1];
@@ -591,8 +780,8 @@ function eylemBitir() {
   if (!e) return;
   if (e.tip === 'firca') isle();
   else if (e.tip === 'sinir') {
-    if (e.yeniden) sinirHesapla();
-    if (!isle() && e.adim.length) bildir('Sınır kımıldamadı — çizgiyi tutup karşı ülkenin içine doğru sürükle.');
+    sinirIsle(e);
+    if (!isle() && e.adimSay) bildir('Sınır kımıldamadı — çizgiyi tutup karşı ülkenin içine doğru sürükle.');
   } else if (e.tip === 'kalem') {
     const c = S.aktifCizim;
     S.aktifCizim = null;
@@ -758,8 +947,14 @@ function olaylariBagla() {
     const kisa = { h: 'tasi', g: 'doldur', f: 'doldur', b: 'firca', s: 'sinir', e: 'silgi', p: 'kalem', i: 'damlalik' };
     const a = kisa[e.key.toLowerCase()];
     if (a) { aracSec(a); return; }
-    if (e.key === '[') { S.firca = Math.max(2, Math.round(S.firca / 1.2)); aracAyarCiz(); istek(); ayarYaz(); }
-    if (e.key === ']') { S.firca = Math.min(200, Math.round(S.firca * 1.2 + 1)); aracAyarCiz(); istek(); ayarYaz(); }
+    if (e.key === '[' || e.key === ']') {
+      const buyut = e.key === ']';
+      if (S.arac === 'sinir') S.etki = Math.min(320, Math.max(20, Math.round((buyut ? S.etki * 1.2 + 1 : S.etki / 1.2) / 5) * 5));
+      else S.firca = Math.min(120, Math.max(3, Math.round(buyut ? S.firca * 1.2 + 1 : S.firca / 1.2)));
+      aracAyarCiz();
+      istek();
+      ayarYaz();
+    }
     if (e.key === '0') sigdir();
     if (e.key === '+' || e.key === '=') yakinlas(1.4, glC.width / 2, glC.height / 2);
     if (e.key === '-') yakinlas(1 / 1.4, glC.width / 2, glC.height / 2);
@@ -825,6 +1020,19 @@ function arayuzKur() {
   gdz.checked = S.deniz;
   gcz.value = S.cizgi;
   $('#g-cizgi-d').textContent = S.cizgi.toFixed(1) + '×';
+  const gad = $('#g-adlar'), gyz = $('#g-yazi');
+  gad.checked = S.adlar;
+  gyz.value = S.yaziBoyu;
+  $('#g-yazi-d').textContent = S.yaziBoyu.toFixed(1) + '×';
+  $('#g-yazi-sar').hidden = !S.adlar;
+  gad.addEventListener('change', () => {
+    S.adlar = gad.checked;
+    $('#g-yazi-sar').hidden = !S.adlar;
+    ayarYaz();
+    etiketHesapla();
+    istek();
+  });
+  gyz.addEventListener('input', () => { S.yaziBoyu = Number(gyz.value); $('#g-yazi-d').textContent = S.yaziBoyu.toFixed(1) + '×'; ayarYaz(); istek(); });
   gic.addEventListener('change', () => { S.icSinir = gic.checked; ayarYaz(); istek(); });
   gdz.addEventListener('change', () => { S.deniz = gdz.checked; ayarYaz(); istek(); });
   gcz.addEventListener('input', () => { S.cizgi = Number(gcz.value); $('#g-cizgi-d').textContent = S.cizgi.toFixed(1) + '×'; ayarYaz(); istek(); });
@@ -905,12 +1113,13 @@ function aracAyarCiz() {
       <p>${S.doldurMod === 'ulke' ? 'Tıkladığın ülkenin adaları dahil tamamı boyanır.' : 'Sadece çizgilerle çevrili, tıkladığın parça boyanır (Paint kovası gibi).'}</p>`;
   } else if (a === 'firca' || a === 'silgi') {
     h += `<label class="kaydirac"><span>Fırça boyu <output>${S.firca}</output></span>
-        <input type="range" min="2" max="200" step="1" value="${S.firca}" data-ayar="firca"></label>`;
+        <input type="range" min="3" max="120" step="1" value="${S.firca}" data-ayar="firca"></label>
+        <p>Daire ekranda sabit boydadır: ince iş için yakınlaş.</p>`;
     if (a === 'firca') h += `<label class="satir-secim"><input type="checkbox" data-ayar="korumali" ${S.korumali ? 'checked' : ''}><span>Başka ülkelerin toprağına taşma (sadece boş araziyi boya)</span></label>`;
   } else if (a === 'sinir') {
     h += `<label class="kaydirac"><span>Etki alanı <output>${S.etki}</output></span>
-        <input type="range" min="15" max="700" step="5" value="${S.etki}" data-ayar="etki"></label>
-        <p>Küçük alan: keskin, dar bir çıkıntı. Büyük alan: geniş bir bölgeyi tek hamlede kaydırır. Daha ileri gitmek için aynı yerden tekrar sürükle.</p>`;
+        <input type="range" min="20" max="320" step="5" value="${S.etki}" data-ayar="etki"></label>
+        <p>Kesik daire etki alanıdır ve ekranda sabit boydadır: bütün bir sınırı kaydırmak için uzaklaş ya da alanı büyüt, ince düzeltme için yakınlaş. Çizgiye tam basman gerekmez; yakınından tutman yeter.</p>`;
   } else if (a === 'kalem') {
     h += `<div class="kalem-renkler">${KALEM_RENK.map((r) => `<button data-kalem="${r}" class="${r === S.kalemRenk ? 'aktif' : ''}" style="background:${r}" aria-label="Kalem rengi ${r}"></button>`).join('')}</div>
       <label class="kaydirac"><span>Kalınlık <output>${S.kalemKalin}</output></span>
@@ -1084,9 +1293,230 @@ function ulkeSil(id) {
   degisti(false);
 }
 
+// ---------------------------------------------------------------- ülke adları (harita etiketleri)
+// Her ülkenin toprak parçaları bulunur; adı, parçanın içine sığan en büyük yatay kutuya yerleştirilir.
+// Boyut harita birimindedir (yakınlaştıkça büyür), ekranda okunur aralığa kısılır; çakışan küçük ad gizlenir.
+const YAZI_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+const HARF_ARALIK = 0.07; // em
+const GW = W >> 1, GH = H >> 1;
+let etk = [];
+let etkG = null, etkLab = null, etkYigin = null;
+let etiketTimer = 0;
+
+function etiketPlanla() {
+  clearTimeout(etiketTimer);
+  etiketTimer = setTimeout(() => { etiketHesapla(); istek(); }, 220);
+}
+
+function yaziOlc(metin) {
+  uctx.save();
+  uctx.font = `700 100px ${YAZI_FONT}`;
+  if ('letterSpacing' in uctx) uctx.letterSpacing = '0px';
+  const w = uctx.measureText(metin).width + HARF_ARALIK * 100 * Math.max(0, [...metin].length - 1);
+  uctx.restore();
+  return w / 100;
+}
+
+// Tek satır ve (boşluk varsa) iki satır seçenekleri: {satirlar, a: genişlik/em, hf: yükseklik/em}
+function yaziSecenekleri(ad) {
+  const t = (ad || 'Adsız ülke').trim().toLocaleUpperCase('tr-TR');
+  const sec = [{ satirlar: [t], a: yaziOlc(t), hf: 0.86 }];
+  const kel = t.split(/\s+/);
+  if (kel.length > 1) {
+    let en = null;
+    for (let i = 1; i < kel.length; i++) {
+      const s1 = kel.slice(0, i).join(' '), s2 = kel.slice(i).join(' ');
+      const a = Math.max(yaziOlc(s1), yaziOlc(s2));
+      if (!en || a < en.a) en = { satirlar: [s1, s2], a, hf: 1.98 };
+    }
+    sec.push(en);
+  }
+  return sec;
+}
+
+function etiketHesapla() {
+  if (!S.adlar || !S.owner) { etk = []; return; }
+  const n = GW * GH;
+  if (!etkG) { etkG = new Uint8Array(n); etkLab = new Int32Array(n); etkYigin = new Int32Array(n); }
+  const g = etkG, lab = etkLab, yig = etkYigin, O = S.owner;
+  for (let y = 0; y < GH; y++) {
+    const kaynak = (2 * y + 1) * W + 1, hedef = y * GW;
+    for (let x = 0; x < GW; x++) g[hedef + x] = O[kaynak + 2 * x];
+  }
+  lab.fill(0);
+  const hucreAlan = new Float64Array(GH);
+  for (let y = 0; y < GH; y++) hucreAlan[y] = 2 * (S.rowArea[2 * y] + S.rowArea[2 * y + 1]);
+
+  // 4-komşulu bağlı parçalar
+  const parcalar = [];
+  let id = 0;
+  for (let i = 0; i < n; i++) {
+    const o = g[i];
+    if (!o || lab[i]) continue;
+    id++;
+    let ust = 0, say = 0, alan = 0, x0 = GW, y0 = GH, x1 = -1, y1 = -1;
+    yig[ust++] = i;
+    lab[i] = id;
+    while (ust) {
+      const j = yig[--ust];
+      const y = (j / GW) | 0, x = j - y * GW;
+      say++;
+      alan += hucreAlan[y];
+      if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (x > 0 && g[j - 1] === o && !lab[j - 1]) { lab[j - 1] = id; yig[ust++] = j - 1; }
+      if (x < GW - 1 && g[j + 1] === o && !lab[j + 1]) { lab[j + 1] = id; yig[ust++] = j + 1; }
+      if (y > 0 && g[j - GW] === o && !lab[j - GW]) { lab[j - GW] = id; yig[ust++] = j - GW; }
+      if (y < GH - 1 && g[j + GW] === o && !lab[j + GW]) { lab[j + GW] = id; yig[ust++] = j + GW; }
+    }
+    parcalar.push({ id, o, say, alan, x0, y0, x1, y1 });
+  }
+
+  // Ülke başına: en büyük parça her zaman; diğer parçalar (en fazla 8) yakınlaşıp ad sığınca görünür
+  const gruplar = new Map();
+  for (const p of parcalar) { if (!gruplar.has(p.o)) gruplar.set(p.o, []); gruplar.get(p.o).push(p); }
+  const liste = [];
+  for (const [o, ps] of gruplar) {
+    const u = S.ulkeler[o];
+    if (!u) continue;
+    ps.sort((a, b) => b.alan - a.alan);
+    const secenek = yaziSecenekleri(u.ad);
+    const en = ps[0].alan;
+    ps.slice(0, 8).forEach((p, k) => {
+      if (k > 0 && (p.alan < en * 0.03 || p.say < 16)) return;
+      const yer = parcaYerlestir(p, secenek);
+      liste.push({ o, ana: k === 0, alan: p.alan, ...yer });
+    });
+  }
+  liste.sort((a, b) => (b.ana - a.ana) || (b.alan - a.alan));
+  etk = liste;
+}
+
+// Parçanın içine sığan en büyük yazı: her hücre için yatay/dikey iç uzunluklar, sonra kutu köşelerinden denetim
+function parcaYerlestir(p, secenekler) {
+  const lab = etkLab, bw = p.x1 - p.x0 + 1, bh = p.y1 - p.y0 + 1, m = bw * bh;
+  const L = new Uint16Array(m), R = new Uint16Array(m), U = new Uint16Array(m), D = new Uint16Array(m);
+  const ic = (x, y) => lab[(y + p.y0) * GW + x + p.x0] === p.id;
+  for (let y = 0; y < bh; y++) {
+    let r = 0;
+    for (let x = 0; x < bw; x++) { r = ic(x, y) ? r + 1 : 0; L[y * bw + x] = r; }
+    r = 0;
+    for (let x = bw - 1; x >= 0; x--) { r = L[y * bw + x] ? r + 1 : 0; R[y * bw + x] = r; }
+  }
+  for (let x = 0; x < bw; x++) {
+    let r = 0;
+    for (let y = 0; y < bh; y++) { r = L[y * bw + x] ? r + 1 : 0; U[y * bw + x] = r; }
+    r = 0;
+    for (let y = bh - 1; y >= 0; y--) { r = L[y * bw + x] ? r + 1 : 0; D[y * bw + x] = r; }
+  }
+  const yYari = (x, y) => (x < 0 || y < 0 || x >= bw || y >= bh) ? -1 : Math.min(L[y * bw + x], R[y * bw + x]) - 0.5;
+  const dYari = (x, y) => (x < 0 || y < 0 || x >= bw || y >= bh) ? -1 : Math.min(U[y * bw + x], D[y * bw + x]) - 0.5;
+  // Kenara uzaklık (3-4 chamfer): adı parçanın ortasına çekmek için
+  const DT = new Uint16Array(m);
+  const BUYUK = 60000;
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const k = y * bw + x;
+      if (!L[k]) continue;
+      let v = BUYUK;
+      const sol = x > 0 ? DT[k - 1] : 0, ust = y > 0 ? DT[k - bw] : 0;
+      const usol = x > 0 && y > 0 ? DT[k - bw - 1] : 0, usag = x < bw - 1 && y > 0 ? DT[k - bw + 1] : 0;
+      v = Math.min(v, sol + 3, ust + 3, usol + 4, usag + 4);
+      DT[k] = v;
+    }
+  }
+  let dtEn = 1;
+  for (let y = bh - 1; y >= 0; y--) {
+    for (let x = bw - 1; x >= 0; x--) {
+      const k = y * bw + x;
+      if (!L[k]) continue;
+      const sag = x < bw - 1 ? DT[k + 1] : 0, alt = y < bh - 1 ? DT[k + bw] : 0;
+      const asag = x < bw - 1 && y < bh - 1 ? DT[k + bw + 1] : 0, asol = x > 0 && y < bh - 1 ? DT[k + bw - 1] : 0;
+      const v = Math.min(DT[k], sag + 3, alt + 3, asag + 4, asol + 4);
+      DT[k] = v;
+      if (v > dtEn) dtEn = v;
+    }
+  }
+  const adim = Math.max(1, Math.floor(Math.sqrt(p.say / 40000)));
+  const boyut = (x, y, a, hf) => {
+    let hw = yYari(x, y), hh = dYari(x, y);
+    let s = Math.min((2 * hh) / hf, (2 * hw) / a);
+    if (s <= 0) return s;
+    const dy = Math.round(s * hf * 0.45), dx = Math.round(a * s * 0.45);
+    hw = Math.min(hw, yYari(x, y - dy), yYari(x, y + dy));
+    hh = Math.min(hh, dYari(x - dx, y), dYari(x + dx, y));
+    return Math.min((2 * hh) / hf, (2 * hw) / a);
+  };
+  // 1. geçiş: sığan en büyük yazı boyu
+  let sEn = -1, secEn = secenekler[0];
+  for (const sec of secenekler) {
+    for (let y = 0; y < bh; y += adim) {
+      for (let x = 0; x < bw; x += adim) {
+        if (!L[y * bw + x]) continue;
+        const s = boyut(x, y, sec.a, sec.hf);
+        if (s > sEn) { sEn = s; secEn = sec; }
+      }
+    }
+  }
+  // 2. geçiş: boyut × merkezilik — biraz küçük ama ortada olan yer, kenardaki en büyük yere tercih edilir
+  let en = { puan: -1, s: sEn, x: 0, y: 0 };
+  for (let y = 0; y < bh; y += adim) {
+    for (let x = 0; x < bw; x += adim) {
+      const k = y * bw + x;
+      if (!L[k]) continue;
+      const s = sEn > 0 ? boyut(x, y, secEn.a, secEn.hf) : 0;
+      const oran = sEn > 0 ? s / sEn : 1;
+      if (sEn > 0 && oran < 0.6) continue;
+      const puan = oran * (0.4 + 0.6 * (DT[k] / dtEn));
+      if (puan > en.puan) en = { puan, s: sEn > 0 ? s : sEn, x, y };
+    }
+  }
+  const s = Math.max(0.5, en.s);
+  return {
+    x: (en.x + p.x0 + 0.5) * 2, y: (en.y + p.y0 + 0.5) * 2, s: s * 2,
+    satirlar: secEn.satirlar, a: secEn.a, hf: secEn.hf,
+  };
+}
+
+// u: CSS pikseli başına çizim pikseli (ekranda dpr), carpan: kullanıcının yazı boyu ayarı
+function etiketCiz(c, scale, ox, oy, u, carpan) {
+  if (!etk.length) return;
+  const kutular = [];
+  const cw = c.canvas.width, ch = c.canvas.height;
+  const harfAralik = 'letterSpacing' in c;
+  c.save();
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.lineJoin = 'round';
+  for (const e of etk) {
+    const ul = S.ulkeler[e.o];
+    if (!ul || !ul.aktif) continue;
+    const dogal = e.s * scale * 0.9;
+    if (!e.ana && dogal < 6 * u) continue;
+    const fs = Math.min(Math.max(dogal, 11 * u), 30 * u) * carpan;
+    const cx = e.x * scale + ox, cy = e.y * scale + oy;
+    const w = e.a * fs + 6 * u, h = e.hf * fs + 4 * u;
+    const kutu = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
+    if (kutu[2] < 0 || kutu[3] < 0 || kutu[0] > cw || kutu[1] > ch) continue;
+    if (kutular.some((k) => kutu[0] < k[2] && kutu[2] > k[0] && kutu[1] < k[3] && kutu[3] > k[1])) continue;
+    kutular.push(kutu);
+    c.font = `700 ${fs}px ${YAZI_FONT}`;
+    if (harfAralik) c.letterSpacing = `${HARF_ARALIK * fs}px`;
+    c.lineWidth = Math.max(2 * u, fs * 0.2);
+    c.strokeStyle = 'rgba(255,255,255,.92)';
+    c.fillStyle = '#151515';
+    const satirH = fs * 1.12;
+    const bas = cy - ((e.satirlar.length - 1) * satirH) / 2;
+    // harf aralığı sağa da eklenir; ortalamayı düzelt
+    const kay = harfAralik ? (HARF_ARALIK * fs) / 2 : 0;
+    e.satirlar.forEach((t, i) => c.strokeText(t, cx + kay, bas + i * satirH));
+    e.satirlar.forEach((t, i) => c.fillText(t, cx + kay, bas + i * satirH));
+  }
+  c.restore();
+}
+
 // ---------------------------------------------------------------- ayarlar (tarayıcıda)
-const AYAR_ANAHTAR = 'diplomasi-harita-ayar-v1';
-const AYAR_ALAN = ['arac', 'firca', 'korumali', 'doldurMod', 'etki', 'kalemRenk', 'kalemKalin', 'icSinir', 'deniz', 'cizgi', 'secili'];
+const AYAR_ANAHTAR = 'diplomasi-harita-ayar-v2';
+const AYAR_ALAN = ['arac', 'firca', 'korumali', 'doldurMod', 'etki', 'kalemRenk', 'kalemKalin', 'icSinir', 'deniz', 'cizgi', 'secili', 'adlar', 'yaziBoyu'];
 function ayarOku() {
   try {
     const a = JSON.parse(localStorage.getItem(AYAR_ANAHTAR) || '{}');
@@ -1240,6 +1670,7 @@ async function dosyadanAc(f) {
     cizici.yukleHepsi(S.owner, S.region);
     paletGuncelle();
     istatistik();
+    etiketHesapla();
     listeCiz();
     dugmeDurumu();
     aracAyarCiz();
@@ -1286,6 +1717,8 @@ async function pngIndir() {
   c.lineCap = 'round';
   c.lineJoin = 'round';
   for (const st of S.cizimler) cizgiCiz(c, st);
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  if (S.adlar) etiketCiz(c, k, 0, 0, ew / 1600, S.yaziBoyu);
   cv.toBlob((b) => { indir(b, `harita-${tarihEki()}.png`); bildir('PNG indirildi.'); }, 'image/png');
 }
 

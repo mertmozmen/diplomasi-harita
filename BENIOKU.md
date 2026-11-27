@@ -10,12 +10,16 @@ Simülasyon için boş dünya haritası + toprak boyama + sınır kaydırma arac
 | Taşı | H | Haritayı sürükler (Boşluk tuşunu basılı tutarak her araçta) |
 | Doldur | G | Ülkeye tıkla → seçili renge boyar. "Tüm ülke" adalarıyla birlikte, "Bağlı alan" sadece tıklanan parça |
 | Fırça | B | Serbest toprak boyama (sadece kara). `[` `]` boyut |
-| Sınır çek | S | İki ülke arasındaki çizgiyi tut, sürükle → arkadaki ülke ilerler, renk ve çizgi birlikte gelir. Üçüncü ülkeye ve denize dokunmaz |
+| Sınır çek | S | İki ülke arasındaki çizgiyi (ya da yakınını) tut, sürükle → arkadaki ülke ilerler, renk ve çizgi birlikte gelir. Üçüncü ülkeye ve denize dokunmaz. Kesik daire etki alanı; `[` `]` ile boyu |
 | Silgi | E | Toprağı sahipsiz bırakır |
 | Kalem | P | Harita üstüne serbest çizim (cephe hattı, ok) |
 | Seç | I / Alt+tık | Tıklanan yerin sahibini seçer |
 
 ⌘Z geri al · ⇧⌘Z yinele · 1–9 ülke seç · 0 tüm dünya · ⌘S dosyaya kaydet
+
+Fırça ve sınır çekme daireleri ekranda sabit boydadır: geniş hamle için uzaklaş, ince iş için yakınlaş.
+
+**Ülke adları** haritaya otomatik yazılır (Görünüm → aç/kapa, yazı boyu). Ad, toprağın içine sığan en geniş yere konur; küçük ya da ayrı parçaların adı yakınlaşınca görünür. PNG'ye de çıkar.
 
 ## Kayıt
 - Her değişiklik tarayıcıya otomatik kaydedilir (aynı tarayıcıda kaldığın yerden devam).

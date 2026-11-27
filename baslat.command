@@ -8,4 +8,4 @@ if lsof -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 ( sleep 1; open "http://localhost:$PORT/" ) &
 echo "Diplomasi Haritası çalışıyor: http://localhost:$PORT  (kapatmak için bu pencereyi kapat)"
-exec python3 -m http.server $PORT --bind 127.0.0.1
+exec python3 sunucu.py $PORT
